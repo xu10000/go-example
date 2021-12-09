@@ -18,18 +18,22 @@ type UnixScoket interface {
 type UnixScoketImpl struct {
 	filename string
 	bufsize  int
+	errCh    chan struct{}
 }
 
 func (u *UnixScoketImpl) handle(conn net.Conn) {
-	defer conn.Close()
 
-	_handle := func() {
+	defer conn.Close()
+	go func() chan struct{} {
+
+		// time.Sleep(time.Second * 5)
 		for {
 
 			buf := make([]byte, u.bufsize)
 			_, err := io.ReadFull(conn, buf)
 			if err != nil {
-				panic("Read:(maybe client close the conn) " + err.Error())
+				fmt.Println("Read:(maybe client close the conn) " + err.Error())
+				u.errCh <- struct{}{}
 			}
 
 			fmt.Println("------server read success", string(buf))
@@ -45,18 +49,21 @@ func (u *UnixScoketImpl) handle(conn net.Conn) {
 			_, err = conn.Write(buf)
 			if err != nil {
 				fmt.Println("err Write ", err)
-				return
+				u.errCh <- struct{}{}
 			}
+
 			fmt.Println("------ server write success", result)
 
 		}
-	}
+	}()
+
+	fmt.Println("------ print wait")
 
 	select {
 	case <-time.After(time.Second * 3):
 		fmt.Println("------ time deadline")
-	default:
-		_handle()
+	case <-u.errCh:
+		fmt.Println("------ routine err")
 	}
 
 }
@@ -94,5 +101,6 @@ func NewUnixSocket(filename string) UnixScoket {
 	return &UnixScoketImpl{
 		filename,
 		ProtoSize,
+		make(chan struct{}),
 	}
 }
